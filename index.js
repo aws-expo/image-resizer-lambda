@@ -5,8 +5,11 @@ const s3 = new AWS.S3();
 const dynamoDB = new AWS.DynamoDB({
   apiVersion: '2012-08-10'
 });
+const sns = new AWS.SNS({
+  apiVersion: '2010-03-31'
+});
 
-const { TABLE_NAME, TARGET_BUCKET } = process.env;
+const { TABLE_NAME, TARGET_BUCKET, SNS_TOPIC_ARN } = process.env;
 
 exports.handler = async function(event, context) {
   // Log the received event
@@ -23,7 +26,7 @@ exports.handler = async function(event, context) {
 
   const getObjectResponse = await s3.getObject(getObjectParams).promise()
     .catch((err) => {
-      console.log('Failed to get object from S3: ', JSON.stringify(err, null, 2));
+      console.error('Failed to get object from S3: ', JSON.stringify(err, null, 2));
       return null;
     });
 
@@ -48,7 +51,7 @@ exports.handler = async function(event, context) {
   const putItemResponse = await dynamoDB.putItem(putItemParams).promise().catch(() => null)
 
   if (!putItemResponse) {
-    console.log('Failed to put item in DynamoDB');
+    console.error('Failed to put item in DynamoDB');
     return;
   }
 
@@ -69,11 +72,31 @@ exports.handler = async function(event, context) {
 
   const putObjectResponse = await s3.putObject(putObjectParams).promise()
     .catch((err) => {
-      console.log('Failed to put object from S3: ', JSON.stringify(err, null, 2));
+      console.error('Failed to put object from S3: ', JSON.stringify(err, null, 2));
       return null;
     });
 
   if (!putObjectResponse) {
+    return;
+  }
+
+  // endregion
+
+  // region Publish message to SNS
+
+  const publishMessageParams = {
+    TopicArn: SNS_TOPIC_ARN,
+    Message: `The new image(${object.key}) is uploaded and resized.`,
+    Subject: 'New uploaded image'
+  };
+
+  const publishMessageResponse = await sns.publish(publishMessageParams).promise()
+    .catch((err) => {
+      console.log('Failed to publish message to sns: ', JSON.stringify(err, null, 2));
+      return null;
+    });
+
+  if (!publishMessageResponse) {
     return;
   }
 
